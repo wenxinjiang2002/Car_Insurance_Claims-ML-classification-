@@ -1,0 +1,478 @@
+---
+title: "Predict If The Customer Claim the Car Insurance loan"
+author: "Wenxin Jiang"
+date: "March 19, 2023"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    code_folding: show
+  pdf_document:
+    toc: yes
+---
+
+## Introduction
+
+### What Is Insurance Claim?
+
+Car insurance claim is a request made by an insured customer to their insurance company to compensate them for financial losses incurred due to a car accident or theft.
+Claimants are usually policyholders who have purchased an insurance policy that covers their car.
+
+### Why Perdict?
+
+The prediction of whether a customer will claim a car insurance loan is critical for an insurance company, as it allows them to manage their risk effectively and avoid financial losses.
+Accurately predicting the outcome enables the insurance company to take appropriate measures to prevent fraudulent claims, to offer personalized policies that suit each customer's needs, and to provide prompt and efficient services to the customers who need it the most.
+In this data analysis report, we aim to predict the likelihood of a customer claiming a car insurance loan based on the given background information, using various statistical and machine learning techniques.
+
+### Our Dataset 
+
+Our dataset resembles practical world features of possible background info of car insurance policy holders, including age, gender, race, driving age, education, credit score, vehicle ownership number, vehicle year, marriage, children, region, annual mileage, vehicle type, speeding violations history, driving under the influence history, and past accidents are all factors that can influence the possibility of claiming a car insurance loan.
+(for detailed description of predictors, please check codebook in the zip file) 
+
+### Why Those Infomations Matter?
+
+For instance, age, gender, and race can impact the likelihood of filing a claim.
+Younger drivers, particularly those under the age of 25, have been found to be more prone to accidents, which may lead to a higher chance of claiming an insurance loan.
+Similarly, male drivers have been found to be more likely to get into accidents and file a claim compared to female drivers.
+In terms of race, studies have shown that there may be disparities in car accident rates and insurance claims based on racial demographics.
+
+Driving age, education, and credit score can also affect the likelihood of claiming an insurance loan.
+Drivers with a longer driving history may be less likely to file a claim, as they are likely to have more experience and safe driving habits.
+Additionally, higher education levels and credit scores are generally associated with more responsible driving behavior and may lead to fewer accidents and claims.
+
+Vehicle ownership number and vehicle year can also influence the likelihood of claiming an insurance loan.
+Drivers who own more vehicles may have a higher chance of making a claim, as they have more assets to protect.
+Additionally, older vehicles may have more wear and tear and may be more prone to accidents, which may increase the likelihood of a claim.
+
+Marital status and children may also impact the possibility of claiming an insurance loan.
+Married drivers may be more responsible and have a lower risk of getting into accidents, while drivers with children may drive more cautiously and avoid risky behavior.
+
+The region and annual mileage of the driver can also impact the likelihood of making an insurance claim.
+Drivers in urban areas may have a higher chance of getting into accidents due to higher traffic volume, while drivers in rural areas may have more open roads and fewer accidents.
+Similarly, drivers who travel long distances frequently may be more likely to get into accidents.
+
+The type of vehicle a driver owns and their history of speeding violations, driving under the influence, and past accidents may also influence the possibility of making an insurance claim.
+Vehicles with higher horsepower or those that are designed for speed may be more prone to accidents, while drivers with a history of traffic violations or past accidents may be more likely to file a claim.
+
+Overall, these factors are important considerations for insurance companies when determining the likelihood of a claim and pricing insurance premiums.
+
+## Loading Packages and Data
+
+First, let's load in all of our packages and the raw data.
+
+```{r loads package, warning=FALSE, message=FALSE}
+library(stats)
+library(naniar)
+library(xgboost)
+library(vip)
+library(tidymodels)
+library(ISLR)
+library(ISLR2)
+library(tidyverse)
+library(glmnet)
+library(modeldata)
+library(ggthemes)
+library(janitor) # for naming conventions
+library(naniar) # to assess missing data patterns
+library(corrplot) # for a correlation plot
+library(patchwork) # for putting plots together
+library(rpart.plot)
+library(forcats) # to grouping rarer class into one
+library(dplyr) # to factorize variables
+library(gridExtra) # to put multiple plots into one page
+library(rsample) # to impute missing values
+library(readr) # to read/write RDS files.
+tidymodels_prefer()
+```
+
+```{r read data}
+# Assigning the data to a variable
+car <- read.csv("Car_Insurance_Claim.csv")
+
+# Calling head() to see the first few rows
+head(car)
+```
+
+## Exploring and Tidying the Raw Data
+
+### Variable Selection
+
+```{r}
+# Calling dim() to see how many rows and columns
+dim(car)
+```
+
+The data set contains 10,000 rows and 19 columns.
+From 19 variables, outcome, is our response.
+And the rest of 18 variables are out potential predictors.
+
+We can check the missing data by using vis_miss().
+We can see that there is 1% data missing in total, which is about 10% each missing in CREDIT_SCORE and ANNUAL_MILEAGE.
+
+```{r check missing value, warning=FALSE}
+# plot of missing values in the data
+vis_miss(car)
+```
+
+One way we could choose to handle the missingness is to remove the variables with any missing data by simply excluding them.
+
+Another way is to remove all observations with missing data from the data set, which is what geom_histogram() and mean() do by default.
+We could do that before we split the data like so:
+
+```{r}
+# car <- car %>% drop_na()
+```
+
+However, dropping those observations reduced the overall number of observations from 10000 to 8149, a reduction of approximately 18.51%, which is a fairly large reduction.
+
+Instead of losing 18% of observations, later we when setting up recipe, we will instead use linear imputation to handle it since there is only 2 variables with missing data.
+
+### Tidying the Data
+
+Let's drop the variables not be needed.\
+
+First of all, before hands on taking care of our dataset, we will clean the vairables' name so that the column name can be easier to use.
+The column name are cleaned up to a consistent style of all lowercase and underscore.
+
+```{r clean names}
+car <- clean_names(car)
+names(car) # take a look at cleaned vairable names
+```
+
+Also, keeping thousands of levels of value of predictor "postal_code" can be redundant.
+Let's change variable 'postal_code' to 'zipcode'.
+And only keep the regional number (the first number) to simplify the predictor.
+(check codebook for detail of regional number)
+
+```{r create new variable}
+car$zipcode <- as.numeric(substr(car$postal_code, 1, 1))
+```
+
+We will also change our response variable "outcome", which is currently a binary variable, to be a factor.
+Besides, we will also change variables "zipcode", "vehicle_ownership", "married", "children" to factors.
+These variables are numeric for now.
+We have to convert these variables to factors so machine will not learn these variables as quantitative.
+
+```{r mutate factors}
+car <- car %>%
+  mutate(outcome = factor(outcome),
+         zipcode = factor(zipcode),
+         vehicle_ownership = factor(vehicle_ownership),
+         married =  factor(married),
+         children =  factor(children))
+```
+
+Then, we will drop variables 'id', 'race', and 'vehicle_type'.
+Identification number does not affect our outcome.
+'race' and 'vehicle_type' contains over 90% of single class, so we will not bother analysis them.
+
+```{r drop variables}
+drops <- c('id', 'race', 'vehicle_type','postal_code')
+car = car[,!(names(car) %in% drops)]
+```
+
+take a look at the final dataset.
+
+```{r}
+head(car)
+```
+
+Creating a final dataset csv.
+
+```{r}
+write.csv(car, "cleaned_data.csv", row.names = FALSE)
+```
+
+### Visual EDA
+
+Now, we will explore the relationships between select variables with the outcome as well as with each other.
+
+#### Who claimed the loan?
+
+First, let's explore the distribution of our outcome variable.\
+
+One important thing to note before diving deeper into building our models, is to realize that in real life, it is less customer to claim his/her loan, which sounds good for insurance company.
+Anyways, below we can see a plot of the distribution of if customers claimed his/her loan.
+As a reminder, a "1" for means a customer has claimed his/her loan else 0.
+
+```{r}
+# Distribution of customers who claimed his/her loan
+ggplot(car, aes(outcome)) +
+  geom_bar(fill='green4') +
+  labs(
+    title = "Distribution of if customers claimed his/her loan"
+  )
+```
+
+As we can see, about 3000 customer claimed the loan and about 7000 customer didn't.
+More observations in our dataset did not claim his/her loan.
+
+#### Variable Correlation Plot
+
+To get an idea of the relationships between our numeric variables, we'll make a correlation matrix and then make a heat map of the correlation of these predictors.
+
+from the correlation matrix, I am not surprised by the fact that speeding violations goes along with past accident and drug/drunk drive.
+
+```{r}
+# making a correlation matrix and heat map of the predictors
+car %>%
+  select(where(is.numeric)) %>%
+  cor(use = "pairwise.complete.obs") %>%
+  corrplot(type='lower')
+```
+
+#### Importance of Categorical Variables
+
+Besides of quantitative variables, we will also take a look at categorical variables are see their relationship with Outcome.
+Create a percent stacked bar chart and see if they are good predictors.
+
+I will not consider to included these variables in my recipe: gender, education, location.
+Contrary to my initial belief, gender does not have too significant of an effect on outcome, as the rates do not differ much at all between male and female.
+Also, since we are not clear what does 'None' in education means and high school education leads to about the same outcome, we will also delete education variable.
+For location variable 'zipcode', the outcome does not differ a lot, so I assume it i snot a good predictor.
+
+```{r}
+age_distribution <- ggplot(car, aes(fill=age, x=outcome)) + 
+    geom_bar(position="fill")
+gender_distribution <- ggplot(car, aes(fill=gender, x=outcome)) + 
+    geom_bar(position="fill")
+driving_experience_distribution <- ggplot(car, aes(fill=driving_experience, x=outcome)) + 
+    geom_bar(position="fill")
+education_distribution <- ggplot(car, aes(fill=education, x=outcome)) + 
+    geom_bar(position="fill")
+income_distribution <- ggplot(car, aes(fill=income, x=outcome)) + 
+    geom_bar(position="fill")
+vehicle_ownership_distribution <- ggplot(car, aes(fill=vehicle_ownership, x=outcome)) + 
+    geom_bar(position="fill")
+year_distribution <- ggplot(car, aes(fill=vehicle_year, x=outcome)) + 
+    geom_bar(position="fill")
+merriage_distribution <- ggplot(car, aes(fill=married, x=outcome)) + 
+    geom_bar(position="fill")
+child_distribution <- ggplot(car, aes(fill=children, x=outcome)) + 
+    geom_bar(position="fill")
+location_distribution <- ggplot(car, aes(fill=zipcode, x=outcome)) + 
+    geom_bar(position="fill")
+
+# not good predictors
+grid.arrange(gender_distribution,education_distribution,location_distribution,ncol=2)
+# good predictors
+grid.arrange(age_distribution, driving_experience_distribution, income_distribution,vehicle_ownership_distribution,year_distribution,merriage_distribution, child_distribution,ncol=2)
+```
+
+## Setting up models
+
+Before we do any model building, we have to perform a training / testing split on our data.
+I decided to go with 80/20 for this data because the testing data set will still have a significant amount of observations, but our model has more to train on and learn.
+The reason we do this is because we want to avoid over-fitting that can only be fit once to deem how accurate our model truly is.
+We also set a random seed to ensure the training / testing split is the same set every time we go back and work on the following code.
+We stratify on our response variable, outcome, and we can move the chains right along.
+
+### Train/Test Split
+
+```{r}
+set.seed(912)  # setting a seed so the split is the same
+car_split <- car %>%
+  initial_split(prop = 0.8, strata = "outcome")
+
+car_train <- training(car_split) # training split
+car_test <- testing(car_split) # testing split
+```
+
+There are now 8000 observations in the training dataset, and 2000 observations in the testing dataset, both adequate values for efficient model building.
+
+### Recipe Building
+
+Because we are going to be use the same predictors, model conditions, and response variable, we create one central recipe for all of our models to work with.
+Each model takes in a unique recipe but works with it under different circumstances.
+We only used 12 of the 15 predictor variables, excluding gender, education, location as explained in 'Importance of Categorical Variables' tab.
+We will dummy categorical variables, and center and scale our data for model usage.
+
+```{r,warning=FALSE, message=FALSE}
+car_recipe <-   # building the recipe to be used for each model
+  recipe(outcome ~ 
+           age+income+married+duis+credit_score+children+past_accidents+driving_experience+vehicle_ownership+
+           vehicle_year+annual_mileage+speeding_violations, 
+         data = car_train) %>% 
+  step_impute_linear(annual_mileage, impute_with = imp_vars(age, income, married, duis, children, past_accidents, driving_experience, vehicle_ownership, 
+           vehicle_year, speeding_violations)) %>% 
+    step_impute_linear(annual_mileage, impute_with = imp_vars(age, income, married)) %>% 
+  step_impute_linear(credit_score) %>% 
+
+  step_dummy(age, driving_experience, income, 
+             vehicle_ownership, vehicle_year, married, children) %>%  # dummy predictor on categorical variables
+  step_center(all_predictors()) %>%   # standardizing our predictors
+  step_scale(all_predictors())
+
+prep(car_recipe)
+```
+
+### K-Fold Cross Validation
+
+We will create 10 folds to conduct k-fold (10-fold in our case) stratified cross validation.
+This means that R is taking the training data and assigning each observation in the training data to 1 of 10 folds.
+For each fold, a testing set is created consisting of that fold and the remaining k-1 folds will be the training set for that fold.
+At the end, we end up with k total folds.
+
+K-fold cross validation is done by splitting the data into k folds as described above with each fold being a testing set with the other k-1 folds being the training set for that fold.
+Then, whichever model we are fitting is fit to each training set and tested on the corresponding testing set (each time, a different fold should be used as a validation set).
+Then, the average accuracy is taken from the testing set of each of the folds to measure performance (other metrics can be taken as well such as standard error).
+
+We use k-fold cross validation rather than simply fitting and testing models on the entire training set because cross validation provides a better estimate of the testing accuracy.
+It is better to take the mean accuracy from several samples instead of just one accuracy from one sample because, as n increases, we reduce variation.
+
+We stratify on the outcome, capture_rate, to make sure the data in each fold is not imbalanced.
+
+```{r,warning=FALSE}
+car_folds <- vfold_cv(car_train, v = 5, strata = outcome)  # 5-fold CV
+```
+Save the folds, recipe, training and testing dataset for later
+```{r}
+save(car_folds, car_recipe, car_train, car_test, file = "/Users/wenxinjiang/Desktop/PSTAT 131/Wenxin 131project/CAR-Modeling-Setup.rda")
+```
+
+## Model Building
+
+It is now time to build our models!
+Since the models take a very long time to run, the results from each of the models has been saved to avoid rerunning the models every time.
+I have chosen area under the roc curve 'roc_auc' as my metric because it works as an overall metric for all models.
+The 'roc_auc' is one of the most commonly used measures for evaluating the performance of classification models.
+A higher roc_auc is better Also, I have fit 4 models to the car insurance data; however, we will only be conducting further analysis on the best-performing model.
+Let's get to building our models!
+
+### Fitting the models 
+
+Each of the models had a very similar process.
+
+I outlined how to build the models under that step (however, the code will not be shown here to save time, for detailed process, please check file 'fitting_models.r').
+
+For each of the models, you must conduct these steps to fit them:
+
+1.  Set up the model by specifying what type of model, setting its engine, and setting its mode (which was always classification)
+
+2.  Set up the workflow for the model and add the model and the recipe.
+
+3.  Create a tuning grid to specify the ranges of the parameters you wish to tune as well as how many levels of each.
+
+4.  Tune the model and specify the workflow, k-fold cross validation folds, and the tuning grid for our chosen parameters to tune.
+
+5.  Save the tuned models to an RDS file to avoid rerunning the model.
+
+6.  Load back in the saved files.
+
+```{r, warning=FALSE}
+# read_rds() to load back in
+
+# logistic REGRESSION 
+logreg_fited <- read_rds(file = "/Users/wenxinjiang/Desktop/PSTAT 131/Wenxin 131project/tuned_models/logreg.rda")
+
+# K NEAREST NEIGHBORS
+knn_tuned <- read_rds(file = "/Users/wenxinjiang/Desktop/PSTAT 131/Wenxin 131project/tuned_models/knn.rda")
+
+# ELASTIC NET
+en_tuned <- read_rds(file = "/Users/wenxinjiang/Desktop/PSTAT 131/Wenxin 131project/tuned_models/en.rda")
+
+# RANDOM FOREST
+rf_tuned <- read_rds(file = "/Users/wenxinjiang/Desktop/PSTAT 131/Wenxin 131project/tuned_models/rf.rda")
+```
+
+7.  Collect the metrics of the tuned models, arrange in ascending order of mean to see what the highest ROC_AUC for that tuned model is, and slice to choose only the highest ROC_AUC. Save the ROC_AUC to a variable for comparison.
+
+```{r, echo=FALSE, warning=FALSE}
+# collect_metrics() to collect the RUC_AUC
+# slice() to save only RUC_AUC
+
+# logistic REGRESSION 
+logreg_auc <- collect_metrics(logreg_fited) %>% 
+  arrange(desc(mean)) %>% 
+  slice(1)
+
+# K NEAREST NEIGHBORS
+knn_auc <- collect_metrics(knn_tuned) %>% 
+  arrange(desc(mean)) %>% 
+  slice(1)
+
+# ELASTIC NET
+en_auc <- collect_metrics(en_tuned) %>% 
+  arrange(desc(mean)) %>% 
+  slice(1)
+
+# RANDOM FOREST 
+rf_auc <- collect_metrics(rf_tuned) %>% 
+  arrange(desc(mean)) %>% 
+  slice(1)
+```
+
+## Model Results
+
+It's finally time to compare the results of all of our models and see which ones performed the best!
+
+```{r, warning=FALSE}
+# Creating a tibble of all the models and their RMSE
+final_compare_tibble <- tibble(Model = c("Logistic Regression", "K Nearest Neighbors", "Elastic Net", "Random Forest"), ROC_AUC = c(logreg_auc$mean, knn_auc$mean, en_auc$mean, rf_auc$mean))
+
+# Arranging by lowest ROC_AUC
+final_compare_tibble <- final_compare_tibble %>% 
+  arrange(desc(ROC_AUC))
+
+final_compare_tibble
+```
+
+From the performance of the models on the cross-validation data, we can see that the Elastic Net model performed the best.
+
+## Results of the Best Model
+
+### Performance on the Folds
+
+So, the Elastic Net performed the best out of all 4 of our models.
+But which tuned parameters were chosen as the best Elastic Net model?
+
+```{r, warning=FALSE}
+en_auc
+```
+
+Elastic Net #91 with penalty 1e-10 and mixture of 1 performed the best with an ROC_AUC of 0.8887358!
+
+### Fitting to Training Data 
+
+Now, we will take that best model from the tuned elastic net and fit it to the training data.
+This will train that elastic net one more time on the entire training data set.
+We will use finalize_workflow() and fit() to fit your chosen model to the entire training set.
+Once we have fit and trained the elastic net on the training data, it will be ready for testing!
+
+```{r, warning=FALSE}
+# load back saved workflow
+en_wf <- read_rds(file = "/Users/wenxinjiang/Desktop/PSTAT 131/Wenxin 131project/tuned_models/en_wflow.rda")
+
+final_wf<- finalize_workflow(en_wf, en_auc)
+
+en_final<- fit(final_wf, car_train)
+```
+
+### Testing the Model
+
+Now, it's time to test our elastic net model to see how it performs on data that it has not been trained on at all: the testing data set.
+we will use augment() to assess the performance of the chosen model on the testing set
+
+```{r, warning=FALSE}
+augment(en_final, new_data = car_test) %>%
+  roc_auc(outcome, estimate = .pred_0)
+```
+
+Our elastic net actually performed better on the testing set than on the cross-validation folds with a roc_auc of 0.8983439!
+We can say our model did pretty good!
+A AUC value around 0.9 is generally considered a excellent result.
+
+## Conclusion
+
+Throughout this project, we have researched, explored, and analyzed our data and its variables in order to build and test a model that could predict if a customer would claim his/her loans. After diligent analysis, testing, and computing, we can say that the Elastic Net model was the best at predicting. Unfortunately, this model was not perfect, and leaves room for improvement.
+
+The model that did the worst was K Nearest Neighbors (KNN). This was also not surprising as KNN tends to do worse when there are too many predictors because this means the data has too many dimensions. In a high dimensional data space, the data points are not close enough to each other for KNN to do well in predicting the outcome unless there are enough observations to make up for the high dimensional data space. Therefore, it makes sense that KNN did the worst.
+
+Some avenues of improvement may be to look into possible correlation between numeric and categorical.
+If I were to continue this project and move forward with my analysis, I would like to explore more real world data that may not be designed to be balanced as what we have now. Overall, attempting to predict if a customer would claim his/her loans using this data set provided great opportunity for me to build my machine learning and data analysis skills.
+
+As I got to know the data set more, I found myself becoming more passionate about learning everything about my data and finding a model that would work the best. Although the elastic net might not have been perfect, I am glad I was able to develop a model that at least explains some of the variation!
+
+## Sources
+
+This data was taken from the Kaggle data set, "Car Insurance Data - Insurance Claims over Cars", (<https://www.kaggle.com/datasets/sagnik1511/car-insurance-data/code?resource=download>).
