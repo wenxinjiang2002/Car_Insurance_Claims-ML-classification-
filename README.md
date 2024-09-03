@@ -23,7 +23,8 @@ representing a certain group of U.S. states.
     - 3 = Alabama (AL), Florida (FL), Georgia (GA), Mississippi (MS), Tennessee (TN), APO Americas (AA), FPO Americas (AA)
     - 9 = Alaska (AK), American Samoa (AS), California (CA), Guam (GU), Hawaii (HI), Marshall Islands (MH), Federated States of Micronesia (FM), Northern Mariana Islands (MP), Oregon (OR), Palau (PW), Washington (WA), APO Pacific (AP), FPO Pacific (AP)
 
-## Cites & Licence
+## Cites
+This data is taken from the Kaggle data set, "Car Insurance Data - Insurance Claims over Cars", (<https://www.kaggle.com/datasets/sagnik1511/car-insurance-data/code?resource=download>).
 
 ## Code Log
 ## 2023 Mar 31 
