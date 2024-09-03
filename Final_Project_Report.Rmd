@@ -472,7 +472,3 @@ Some avenues of improvement may be to look into possible correlation between num
 If I were to continue this project and move forward with my analysis, I would like to explore more real world data that may not be designed to be balanced as what we have now. Overall, attempting to predict if a customer would claim his/her loans using this data set provided great opportunity for me to build my machine learning and data analysis skills.
 
 As I got to know the data set more, I found myself becoming more passionate about learning everything about my data and finding a model that would work the best. Although the elastic net might not have been perfect, I am glad I was able to develop a model that at least explains some of the variation!
-
-## Sources
-
-This data was taken from the Kaggle data set, "Car Insurance Data - Insurance Claims over Cars", (<https://www.kaggle.com/datasets/sagnik1511/car-insurance-data/code?resource=download>).
